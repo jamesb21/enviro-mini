@@ -94,15 +94,55 @@ def get_cpu_temperature():
     output, _error = process.communicate()
     return float(output[output.index('=') + 1:output.rindex("'")])
 
+cpu_temps = [get_cpu_temperature()] * 5
+
+# get the sensor data
+def get_sensor_data():
+    global cpu_temps
+     # One mode for each variable
+    if mode == 0:
+        # variable = "temperature"
+        unit = "F"
+        cpu_temp = get_cpu_temperature()
+        # Smooth out with some averaging to decrease jitter
+        cpu_temps = cpu_temps[1:] + [cpu_temp]
+        avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
+        raw_temp = bme280.get_temperature()
+        data_c = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
+        data = (data_c * 1.8) + 32
+        display_text(variables[mode], data, unit)
+
+    if mode == 1:
+        # variable = "pressure"
+        unit = "hPa"
+        data = bme280.get_pressure()
+        display_text(variables[mode], data, unit)
+
+    if mode == 2:
+        # variable = "humidity"
+        unit = "%"
+        data = bme280.get_humidity()
+        display_text(variables[mode], data, unit)
+
+    if mode == 3:
+        # variable = "light"
+        unit = "Lux"
+        if proximity < 10:
+            data = ltr559.get_lux()
+        else:
+            data = 1
+        display_text(variables[mode], data, unit)   
+    
 
 # Tuning factor for compensation. Decrease this number to adjust the
 # temperature down, and increase to adjust up
 factor = 2.25
 
-cpu_temps = [get_cpu_temperature()] * 5
+#cpu_temps = [get_cpu_temperature()] * 5
 
 delay = 0.5  # Debounce the proximity tap
 mode = 0  # The starting mode
+sensor_delay_count=0
 last_page = 0
 light = 1
 
@@ -119,48 +159,26 @@ for v in variables:
 
 # The main loop
 try:
+    display_now=True
+    poll_delay=900
     while True:  # do forever
-        time.sleep(2) #delay
-        proximity = ltr559.get_proximity()
+        time.sleep(1) #delay seconds
+        proximity = ltr559.get_proximity() #finger present
 
         # If the proximity crosses the threshold, toggle the mode
         if proximity > 1500 and time.time() - last_page > delay:
             mode += 1
             mode %= len(variables)
             last_page = time.time()
+            print('mode changed to '+variables[mode]+' '+str(mode))
+            display_now=True
 
-        # One mode for each variable
-        if mode == 0:
-            # variable = "temperature"
-            unit = "C"
-            cpu_temp = get_cpu_temperature()
-            # Smooth out with some averaging to decrease jitter
-            cpu_temps = cpu_temps[1:] + [cpu_temp]
-            avg_cpu_temp = sum(cpu_temps) / float(len(cpu_temps))
-            raw_temp = bme280.get_temperature()
-            data = raw_temp - ((avg_cpu_temp - raw_temp) / factor)
-            display_text(variables[mode], data, unit)
+        sensor_delay_count+=1
+        if sensor_delay_count>=(poll_delay) or display_now:
+            sensor_delay_count=0
+            display_now=False
+            get_sensor_data()
 
-        if mode == 1:
-            # variable = "pressure"
-            unit = "hPa"
-            data = bme280.get_pressure()
-            display_text(variables[mode], data, unit)
-
-        if mode == 2:
-            # variable = "humidity"
-            unit = "%"
-            data = bme280.get_humidity()
-            display_text(variables[mode], data, unit)
-
-        if mode == 3:
-            # variable = "light"
-            unit = "Lux"
-            if proximity < 10:
-                data = ltr559.get_lux()
-            else:
-                data = 1
-            display_text(variables[mode], data, unit)
 
 # Exit cleanly
 except KeyboardInterrupt:
